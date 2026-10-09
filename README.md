@@ -1,20 +1,21 @@
 # Indoone Backend Control Center — Web
 
-Responsive React + TypeScript admin workspace for Indoone platform monitoring and controls.
+Responsive React + TypeScript dashboard for controlling and monitoring the existing Indoone backend.
 
-## Run locally
+## Local development
 
 Requirements: Node.js 20+ and npm.
 
 ```bash
 npm install
 cp .env.example .env.local
+# Optional: set VITE_INDOONE_API_BASE_URL to the backend's HTTPS origin.
 npm run dev
 ```
 
-Vite prints the local URL. To test the backend connection, set `VITE_INDOONE_API_BASE_URL` in `.env.local` to the backend origin (for example, `https://your-backend.example`) and restart Vite.
+The backend origin can also be entered on the sign-in screen. `VITE_INDOONE_API_BASE_URL` is only a public URL, never a token or secret.
 
-## Validate changes
+## Validation
 
 ```bash
 npm run test:smoke
@@ -23,28 +24,44 @@ npm run typecheck
 npm run build
 ```
 
-The production bundle is emitted to `dist/`.
+GitHub Actions also runs the dependency security audit, tests, TypeScript check, and production build.
+
+## Live backend controls
+
+The UI connects to the existing protected Indoone backend API. It does not generate AI responses or change model/provider configuration.
+
+- **Global request intake:** pause/resume application API handling while leaving the backend process and Control Center endpoints online.
+- **Global AI replies:** pause/resume automated replies independently of intake.
+- **Per-channel settings:** separate request-intake and reply switches for WhatsApp, Instagram, Telegram, and Android.
+- **Live metrics:** request success/failure/blocked counts, reply sent/failure/skipped counts, and recent outcome records from the backend.
+
+The protected endpoints used by the UI are:
+
+- `GET /api/control-center/status`
+- `PATCH /api/control-center/settings`
+- `GET /api/control-center/metrics`
+- `GET /api/control-center/activity`
+
+A switch changes state only after the backend confirms the update. An error is shown if the API rejects the operation; the UI does not pretend the live state changed. Metrics begin after the feature is deployed and are not reconstructed from historical logs.
+
+## Authentication and secret handling
+
+Sign-in requires both the backend HTTPS origin and the dedicated `INDOONE_CONTROL_CENTER_ADMIN_TOKEN` configured on the backend server. The token is sent in an `Authorization: Bearer` header to the entered origin only. It stays in component memory, is not saved to local storage, and disappears when the page is refreshed.
+
+**Never** put the admin token, provider credentials, passwords, or signing keys in a `VITE_*` variable or source file. Frontend build variables are public. Configure the backend's `INDOONE_ALLOWED_ORIGINS` with the exact dashboard origin; for GitHub Pages this is normally `https://indooneteam.github.io`. Do not use wildcard CORS origins in production.
+
+The GitHub Pages site is public hosting. Backend data or settings are protected only because the server validates the dedicated admin token; `noindex` is not security.
 
 ## GitHub Pages deployment
 
-The `.github/workflows/deploy-pages.yml` workflow builds the React/Vite app, runs source checks and TypeScript validation, and publishes `dist/` to GitHub Pages on each push to `main`. It can also be run manually from Actions.
+The `.github/workflows/deploy-pages.yml` workflow builds and publishes `dist/` when changes are pushed to `main`.
 
-In repository **Settings → Pages → Build and deployment**, select **GitHub Actions** as the source. A green deployment check means the artifact was published; verify the public URL in a browser after deployment.
+1. In repository **Settings → Pages → Build and deployment**, select **GitHub Actions**.
+2. Ensure the backend has the dedicated Control Center token configured and allows the exact Pages origin.
+3. Merge the reviewed frontend PR; wait for the **Deploy Web App** workflow to finish green.
+4. Open the published site, enter the backend HTTPS origin and admin token, and confirm live status/metrics load.
 
-## Backend connection
-
-The Settings page offers a read-only `GET /health` check against the configured `VITE_INDOONE_API_BASE_URL`. It omits browser credentials and does not change backend state.
-
-For browser health checks to work, the backend must allow the Pages origin (including `https://indooneteam.github.io`) in its CORS configuration. The exact allowed-origin value must be configured on the backend deployment; it is not stored in this frontend repository.
-
-## Authentication and live controls
-
-- The login form is currently a UI preview. It deliberately does not submit, save, or authenticate the entered password.
-- The existing Indoone backend validates Firebase ID tokens or signed bearer tokens, but repository inspection did not find an administrator email/password login endpoint.
-- Dashboard metrics are sample data. AI/platform switches affect only local preview state and do not control production services.
-- Before enabling real admin controls, implement server-side admin authentication and role-based authorization, then protected API endpoints for reading status and applying each control.
-- Never put passwords, API secrets, signing keys, or other private values in frontend environment variables. Values prefixed with `VITE_` become visible in the public browser bundle.
-- The `noindex` meta tag is not an access-control mechanism. A public Pages URL must not be treated as a secured admin interface until authentication is implemented.
+The repository branch/PR CI does not by itself configure or deploy the backend server. Server environment changes and a backend service restart are separate deployment steps.
 
 ## Stack
 
