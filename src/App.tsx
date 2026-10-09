@@ -105,6 +105,7 @@ function LoginScreen({
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -140,15 +141,26 @@ function LoginScreen({
             <label htmlFor="admin-password">Password</label>
             <span>Authentication pending</span>
           </div>
-          <input
-            id="admin-password"
-            autoComplete="current-password"
-            type="password"
-            placeholder="Enter your password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
+          <div className="password-input-wrap">
+            <input
+              id="admin-password"
+              autoComplete="current-password"
+              type={showPassword ? "text" : "password"}
+              placeholder="Enter your password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+            <button
+              className="password-visibility"
+              type="button"
+              onClick={() => setShowPassword((visible) => !visible)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
           <button className="primary-button login-button" type="submit">
             Sign in <span aria-hidden="true">→</span>
           </button>
