@@ -1,19 +1,20 @@
 # Indoone Backend Control Center — Web
 
-A responsive React + TypeScript web dashboard foundation for monitoring and administering Indoone channels.
+Responsive React + TypeScript admin workspace for Indoone platform monitoring and controls.
 
-## Local development
+## Run locally
 
-Requirements: Node.js 20 or newer and npm.
+Requirements: Node.js 20+ and npm.
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
-Vite prints the local development URL in the terminal.
+Vite prints the local URL. To test the backend connection, set `VITE_INDOONE_API_BASE_URL` in `.env.local` to the backend origin (for example, `https://your-backend.example`) and restart Vite.
 
-## Validation
+## Validate changes
 
 ```bash
 npm run test:smoke
@@ -21,23 +22,31 @@ npm run typecheck
 npm run build
 ```
 
-The production build is written to `dist/`. Asset paths are relative to support static hosting from a project subpath.
+The production bundle is emitted to `dist/`.
 
-## GitHub Pages setup
+## GitHub Pages deployment
 
-The production workflow is `.github/workflows/deploy-pages.yml`. During setup it is intentionally manual-only, so it will not attempt a deployment before Pages is configured correctly.
+The `.github/workflows/deploy-pages.yml` workflow builds the React/Vite app, runs source checks and TypeScript validation, and publishes `dist/` to GitHub Pages on each push to `main`. It can also be run manually from Actions.
 
-1. Open **Settings → Pages** in this repository.
-2. Under **Build and deployment → Source**, select **GitHub Actions** (not “Deploy from a branch”).
-3. After changing the source, the deployment workflow can be run from **Actions → Deploy Web App → Run workflow**. A later commit will enable automatic deployment on pushes after that first successful run.
+In repository **Settings → Pages → Build and deployment**, select **GitHub Actions** as the source. A green deployment check means the artifact was published; verify the public URL in a browser after deployment.
 
-Repository access currently permits code pushes but not Pages settings changes, so the source selection must be made by a repository administrator.
+## Backend connection
 
-## Current app status and security
+The Settings page offers a read-only `GET /health` check against the configured `VITE_INDOONE_API_BASE_URL`. It omits browser credentials and does not change backend state.
 
-- Responsive sign-in screen and dashboard preview are present.
-- The login form is not connected to an authentication server. Submitting it shows a notice; no credentials are stored or transmitted.
-- Dashboard metrics are sample data. Channel and AI switches change local preview state only and do not control production services.
-- Admin UI is marked `noindex`; this does not replace authentication or access control.
-- The next integration phase is server-side admin authentication, secure sessions, and authorized API endpoints before enabling live controls.
-- Never place API keys, passwords, session secrets, or production environment values in this repository or browser code.
+For browser health checks to work, the backend must allow the Pages origin (including `https://indooneteam.github.io`) in its CORS configuration. The exact allowed-origin value must be configured on the backend deployment; it is not stored in this frontend repository.
+
+## Authentication and live controls
+
+- The login form is currently a UI preview. It deliberately does not submit, save, or authenticate the entered password.
+- The existing Indoone backend validates Firebase ID tokens or signed bearer tokens, but repository inspection did not find an administrator email/password login endpoint.
+- Dashboard metrics are sample data. AI/platform switches affect only local preview state and do not control production services.
+- Before enabling real admin controls, implement server-side admin authentication and role-based authorization, then protected API endpoints for reading status and applying each control.
+- Never put passwords, API secrets, signing keys, or other private values in frontend environment variables. Values prefixed with `VITE_` become visible in the public browser bundle.
+- The `noindex` meta tag is not an access-control mechanism. A public Pages URL must not be treated as a secured admin interface until authentication is implemented.
+
+## Stack
+
+- React + TypeScript
+- Vite
+- GitHub Actions + GitHub Pages
