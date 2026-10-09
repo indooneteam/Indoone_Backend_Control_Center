@@ -32,6 +32,7 @@ assert.match(app, /aria-pressed={showPassword}/);
 assert.match(app, /type={showPassword \? "text" : "password"}/);
 assert.match(app, /Open dashboard preview/);
 assert.match(app, /Preview mode/);
+assert.ok(app.includes('aria-current={page === item.id ? "page" : undefined}'), "Active navigation item must expose aria-current");
 assert.ok(app.includes("Intl.DateTimeFormat"), "Dashboard date must be generated dynamically");
 assert.ok(app.includes("{currentDateLabel}"), "Dashboard heading must render the current date");
 assert.match(ignore, /^\.env\s*$/m);

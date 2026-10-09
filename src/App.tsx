@@ -334,6 +334,7 @@ function App() {
               key={item.id}
               type="button"
               className={"nav-item" + (page === item.id ? " nav-item-active" : "")}
+              aria-current={page === item.id ? "page" : undefined}
               onClick={() => setPage(item.id)}
             >
               <span className="nav-icon">{item.icon}</span>
