@@ -395,6 +395,40 @@ function App() {
                   <div className="ai-note"><span>✳</span><p>The real AI switch must be enforced by the backend, not just by this dashboard.</p></div>
                 </section>
               </div>
+              <section className="panel backend-health-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Backend connection</h2>
+                    <p>Read-only server health check</p>
+                  </div>
+                  <span className={"soft-badge " + (apiCheck.status === "connected" ? "badge-connected" : (apiCheck.status === "error" || apiCheck.status === "invalid") ? "badge-error" : apiCheck.status === "checking" ? "badge-checking" : "")}>
+                    {apiCheck.status === "idle" ? "Not checked" : apiCheck.status === "not-configured" ? "Setup needed" : apiCheck.status === "checking" ? "Checking…" : apiCheck.status === "connected" ? "Connected" : apiCheck.status === "invalid" ? "Invalid URL" : "Connection failed"}
+                  </span>
+                </div>
+                <div className="backend-health-content">
+                  <span className={"backend-health-dot" + (apiCheck.status === "connected" ? " health-dot-connected" : apiCheck.status === "error" || apiCheck.status === "invalid" ? " health-dot-error" : apiCheck.status === "checking" ? " health-dot-checking" : "")} />
+                  <div className="backend-health-copy">
+                    <strong>{apiCheck.status === "connected" ? "Backend reachable" : apiCheck.status === "checking" ? "Checking backend…" : apiCheck.status === "error" || apiCheck.status === "invalid" ? "Connection needs attention" : "Backend connection not verified"}</strong>
+                    <p>{apiCheck.message}</p>
+                  </div>
+                  <button
+                    className="secondary-button connection-test"
+                    type="button"
+                    disabled={apiCheck.status === "checking"}
+                    onClick={() => {
+                      if (apiBaseUrl.trim()) {
+                        void handleBackendHealthCheck();
+                      } else {
+                        setPage("settings");
+                        setNotice("Enter the backend base URL in Settings to enable the read-only health check.");
+                      }
+                    }}
+                  >
+                    {apiCheck.status === "checking" ? "Checking…" : apiBaseUrl.trim() ? "Check connection" : "Configure URL"}
+                  </button>
+                </div>
+                <div className="backend-health-footnote">This card only requests GET /health. It does not change backend settings or platform controls.</div>
+              </section>
               <section className="panel channels-panel">
                 <div className="panel-heading"><div><h2>Platform controls</h2><p>Quick status and channel switches</p></div><button className="text-link" type="button" onClick={() => setPage("channels")}>View all channels <span>→</span></button></div>
                 <div className="channel-grid">

@@ -42,6 +42,9 @@ assert.ok(apiClient.includes('method: "GET"'), "Health check must use GET");
 assert.ok(apiClient.includes("/health"), "Health endpoint path must be present");
 assert.ok(apiClient.includes('credentials: "omit"'), "Health check must omit browser credentials");
 assert.ok(appSource.includes("Check connection"), "Settings must expose the backend health check");
+assert.ok(appSource.includes("Backend connection"), "Overview must expose backend connectivity");
+assert.ok(appSource.includes("Configure URL"), "Overview must direct users to configure an absent backend URL");
+assert.ok(appSource.includes("This card only requests GET /health"), "Overview health check must remain read-only");
 assert.ok(exampleEnv.includes("VITE_INDOONE_API_BASE_URL="), "Example environment file must document the API base URL");
 
 console.log("Source smoke checks passed: preview-only login, accessible password toggle, read-only backend health check, and secret-file ignores.");
