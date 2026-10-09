@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: Typecheck and production build
+    name: Source checks, typecheck and production build
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -22,6 +22,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Source smoke checks
+        run: npm run test:smoke
       - name: TypeScript validation
         run: npm run typecheck
       - name: Production build

@@ -16,14 +16,18 @@ Vite prints the local development URL in the terminal.
 ## Validation
 
 ```bash
+npm run test:smoke
 npm run typecheck
 npm run build
 ```
 
+The production build is written to `dist/`. Asset paths are relative to support static hosting from a project subpath.
+
 ## Current status
 
-- Responsive sign-in screen UI is present.
-- The dashboard is a **local preview only**. Channel switches and sample metrics are not connected to production services.
-- No credentials are stored or transmitted. Sign-in intentionally reports that backend authentication is not connected.
-- Next integration phase: implement server-side admin authentication, secure sessions, and authorized API endpoints before enabling real controls.
+- Responsive sign-in screen and dashboard preview are present.
+- The login form is not connected to an authentication server. Submitting it shows a notice; no credentials are stored or transmitted.
+- Dashboard metrics are sample data. Channel and AI switches change local preview state only and do not control production services.
+- Admin UI is marked `noindex`; this does not replace authentication or access control.
+- Next integration phase: implement server-side admin authentication, secure sessions, and authorized API endpoints before enabling live controls.
 - Never place API keys, passwords, session secrets, or production environment values in this repository or browser code.
