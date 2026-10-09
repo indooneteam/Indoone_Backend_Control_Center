@@ -32,6 +32,8 @@ assert.match(app, /aria-pressed={showPassword}/);
 assert.match(app, /type={showPassword \? "text" : "password"}/);
 assert.match(app, /Open dashboard preview/);
 assert.match(app, /Preview mode/);
+assert.ok(app.includes("Intl.DateTimeFormat"), "Dashboard date must be generated dynamically");
+assert.ok(app.includes("{currentDateLabel}"), "Dashboard heading must render the current date");
 assert.match(ignore, /^\.env\s*$/m);
 assert.match(ignore, /^node_modules\/\s*$/m);
 assert.ok(apiClient.includes("VITE_INDOONE_API_BASE_URL"), "Backend URL must be configurable at build time");
