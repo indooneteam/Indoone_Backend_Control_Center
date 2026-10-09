@@ -1,5 +1,23 @@
-import { describe, expect, it } from "vitest";
-import { isApiBaseUrlValid } from "./api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { checkBackendHealth, isApiBaseUrlValid } from "./api";
+
+const fetchMock = vi.fn();
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" }
+  });
+}
 
 describe("backend API base URL validation", () => {
   it("accepts HTTPS origins", () => {
@@ -26,5 +44,54 @@ describe("backend API base URL validation", () => {
   it("rejects empty and malformed values", () => {
     expect(isApiBaseUrlValid("")).toBe(false);
     expect(isApiBaseUrlValid("not a URL")).toBe(false);
+  });
+});
+
+describe("read-only backend health check", () => {
+  it("requests only GET /health without credentials and accepts a valid payload", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "ok" }));
+
+    await expect(checkBackendHealth("https://api.example.com/")).resolves.toEqual({ status: "ok" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.com/health",
+      expect.objectContaining({
+        method: "GET",
+        mode: "cors",
+        credentials: "omit",
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      })
+    );
+  });
+
+  it("does not send a request when the URL is invalid", async () => {
+    await expect(checkBackendHealth("http://api.example.com")).rejects.toThrow(/HTTPS origin/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports unauthorized backend responses clearly", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "unauthorized" }, 401));
+
+    await expect(checkBackendHealth("https://api.example.com")).rejects.toThrow(/access policy and CORS/);
+  });
+
+  it("rejects unsuccessful HTTP responses", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "unavailable" }, 503));
+
+    await expect(checkBackendHealth("https://api.example.com")).rejects.toThrow(/HTTP 503/);
+  });
+
+  it("rejects unexpected health response shapes", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ healthy: true }));
+
+    await expect(checkBackendHealth("https://api.example.com")).rejects.toThrow(/unexpected response/);
+  });
+
+  it("turns browser network failures into a useful message", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    await expect(checkBackendHealth("https://api.example.com")).rejects.toThrow(/CORS allowed origins/);
   });
 });
