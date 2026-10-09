@@ -109,7 +109,8 @@ describe("read-only backend health check", () => {
     );
 
     const request = checkBackendHealth("https://api.example.com");
+    const timeoutAssertion = expect(request).rejects.toThrow(/timed out after 8 seconds/);
     await vi.advanceTimersByTimeAsync(8000);
-    await expect(request).rejects.toThrow(/timed out after 8 seconds/);
+    await timeoutAssertion;
   });
 });
