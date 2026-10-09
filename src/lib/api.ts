@@ -1,7 +1,7 @@
 const configuredBase = (import.meta.env.VITE_INDOONE_API_BASE_URL ?? "").trim();
 export const API_BASE_URL = configuredBase.replace(/\/+$/, "");
 
-function isValidBaseUrl(value: string): boolean {
+export function isApiBaseUrlValid(value: string): boolean {
   try {
     const url = new URL(value);
     const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
@@ -15,7 +15,7 @@ function isValidBaseUrl(value: string): boolean {
 
 export async function checkBackendHealth(): Promise<{ status: string }> {
   if (!API_BASE_URL) throw new Error("Backend URL is not configured.");
-  if (!isValidBaseUrl(API_BASE_URL)) {
+  if (!isApiBaseUrlValid(API_BASE_URL)) {
     throw new Error("Backend URL must be an HTTPS origin (or localhost for development), without credentials or extra paths.");
   }
 

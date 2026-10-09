@@ -18,6 +18,7 @@ Vite prints the local URL. To test the backend connection, set `VITE_INDOONE_API
 
 ```bash
 npm run test:smoke
+npm test
 npm run typecheck
 npm run build
 ```
