@@ -29,6 +29,8 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Install dependencies
         run: npm install
+      - name: Dependency security audit
+        run: npm audit --audit-level=moderate
       - name: Run source checks
         run: npm run test:smoke
       - name: TypeScript validation

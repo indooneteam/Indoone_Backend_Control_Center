@@ -22,6 +22,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Dependency security audit
+        run: npm audit --audit-level=moderate
       - name: Source smoke checks
         run: npm run test:smoke
       - name: API URL unit tests
