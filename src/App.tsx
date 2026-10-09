@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { API_BASE_URL, checkBackendHealth } from "./lib/api";
 
 type Page = "overview" | "channels" | "activity" | "settings";
 
@@ -244,6 +245,15 @@ function App() {
     instagram: false
   });
   const [notice, setNotice] = useState("You're viewing sample data. Controls are not connected to the backend.");
+  const [apiCheck, setApiCheck] = useState<{
+    status: "idle" | "checking" | "connected" | "error" | "not-configured";
+    message: string;
+  }>({
+    status: API_BASE_URL ? "idle" : "not-configured",
+    message: API_BASE_URL
+      ? "No connection request has been sent yet."
+      : "Set VITE_INDOONE_API_BASE_URL during the build to test your backend."
+  });
 
   if (!isPreview) {
     return <LoginScreen onPreview={() => setIsPreview(true)} />;
@@ -254,6 +264,30 @@ function App() {
 
   function showPreviewNotice() {
     setNotice("Preview only — this change is local to this browser and has not changed any live service.");
+  }
+
+  async function handleBackendHealthCheck() {
+    if (!API_BASE_URL) {
+      setApiCheck({
+        status: "not-configured",
+        message: "Backend URL is not configured. Set VITE_INDOONE_API_BASE_URL and rebuild the web app."
+      });
+      return;
+    }
+
+    setApiCheck({ status: "checking", message: "Sending a read-only GET /health request…" });
+    try {
+      const result = await checkBackendHealth();
+      setApiCheck({
+        status: "connected",
+        message: `Backend health endpoint responded with status: ${result.status}.`
+      });
+      setNotice("Backend health check succeeded. No server settings were changed.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown connection error";
+      setApiCheck({ status: "error", message });
+      setNotice("Backend health check failed. No production settings were changed.");
+    }
   }
 
   return (
@@ -382,7 +416,13 @@ function App() {
               <div className="panel-heading"><div><h2>Workspace settings</h2><p>Preferences for the admin workspace preview</p></div></div>
               <div className="settings-row"><div><strong>Global AI processing</strong><p>Preview switch only. The live setting requires a secure backend API.</p></div><Switch checked={aiEnabled} label="Toggle global AI processing preview" onToggle={() => { setAiEnabled(!aiEnabled); showPreviewNotice(); }} /></div>
               <div className="settings-row"><div><strong>Admin authentication</strong><p>Server-side sign-in, secure session management and access control are not connected yet.</p></div><span className="soft-badge">Pending</span></div>
-              <div className="settings-row"><div><strong>API connection</strong><p>No requests are currently sent to the production backend.</p></div><span className="soft-badge">Not connected</span></div>
+              <div className="settings-row settings-row-connection">
+                <div><strong>Backend API connection</strong><p>{apiCheck.message}</p><small className="api-url-note">{API_BASE_URL ? "Configured endpoint; this test only reads /health." : "No backend URL is included in this build yet."}</small></div>
+                <div className="connection-controls">
+                  <span className={"soft-badge " + (apiCheck.status === "connected" ? "badge-connected" : apiCheck.status === "error" ? "badge-error" : apiCheck.status === "checking" ? "badge-checking" : "")}>{apiCheck.status === "idle" ? "Not checked" : apiCheck.status === "not-configured" ? "Not configured" : apiCheck.status === "checking" ? "Checking…" : apiCheck.status === "connected" ? "Connected" : "Connection failed"}</span>
+                  <button className="secondary-button connection-test" type="button" onClick={handleBackendHealthCheck} disabled={apiCheck.status === "checking"}>{apiCheck.status === "checking" ? "Checking…" : "Check connection"}</button>
+                </div>
+              </div>
             </section>
           )}
 
