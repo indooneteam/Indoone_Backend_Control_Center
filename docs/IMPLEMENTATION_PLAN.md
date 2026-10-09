@@ -30,10 +30,18 @@ Connect this existing React/TypeScript dashboard to the existing Indoone backend
 
 ## Acceptance checklist
 
-- [ ] Sign-in succeeds only when the backend validates the admin token.
-- [ ] A single global intake switch pauses/resumes application request processing without taking down the server or control API.
-- [ ] Request-intake and reply switches are independent for all four channels.
-- [ ] Metrics and activity are server-backed, not hard-coded sample data.
-- [ ] Each toggle displays failure safely and does not claim success unless the API confirms it.
-- [ ] No AI model/provider code or secret is changed.
-- [ ] CI is green before merging; Pages deployment is verified after merging.
+- [x] Sign-in succeeds only when the backend validates the dedicated admin token.
+- [x] A single global intake switch pauses/resumes application request processing without taking down the server or control API.
+- [x] Request-intake and reply switches are independent for all four channels.
+- [x] Metrics and activity are server-backed, not hard-coded sample data.
+- [x] Each toggle displays failure safely and does not claim success unless the API confirms it.
+- [x] No AI model/provider code or secret is changed.
+- [x] CI is green before merging.
+- [ ] After merge, verify the GitHub Pages deployment and test it against a configured live backend.
+
+
+## Deployment state
+
+Feature implementation is committed on `feat/live-channel-controls`; frontend CI is green for the live dashboard/API integration commit. The PR still needs review/merge, and the public Pages deployment has not been updated by this feature branch.
+
+Before live use, configure `INDOONE_CONTROL_CENTER_ADMIN_TOKEN` and the exact Pages origin in backend runtime environment; deploy/restart the backend; then merge and verify the GitHub Pages workflow. Do not expose the admin token in the frontend build.
