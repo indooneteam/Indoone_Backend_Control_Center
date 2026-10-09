@@ -10,11 +10,19 @@ permissions:
   contents: read
 
 jobs:
-  bootstrap-check:
-    name: Bootstrap repository check
+  build:
+    name: Typecheck and production build
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Verify CI workflow exists
-        run: test -f .github/workflows/ci.yml
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: TypeScript validation
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
