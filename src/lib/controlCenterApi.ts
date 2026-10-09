@@ -69,7 +69,7 @@ export async function controlCenterRequest<T>(
   path: string,
   options: { method?: "GET" | "PATCH"; body?: unknown } = {}
 ): Promise<T> {
-  const origin = baseUrl.trim().replace(/\\/+$/, "");
+  const origin = baseUrl.trim().replace(/\/+$/, "");
   const token = adminToken.trim();
 
   if (!isApiBaseUrlValid(origin)) {
