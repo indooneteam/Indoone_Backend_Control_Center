@@ -7,7 +7,9 @@ const requiredFiles = [
   "src/App.tsx",
   "src/styles.css",
   "vite.config.ts",
-  "public/favicon.svg"
+  "public/favicon.svg",
+  "src/lib/api.ts",
+  ".env.example"
 ];
 
 for (const path of requiredFiles) {
@@ -17,6 +19,9 @@ for (const path of requiredFiles) {
 const html = readFileSync("index.html", "utf8");
 const app = readFileSync("src/App.tsx", "utf8");
 const ignore = readFileSync(".gitignore", "utf8");
+const apiClient = readFileSync("src/lib/api.ts", "utf8");
+const appSource = readFileSync("src/App.tsx", "utf8");
+const exampleEnv = readFileSync(".env.example", "utf8");
 
 assert.match(html, /name="robots" content="noindex, nofollow, noarchive"/);
 assert.match(html, /id="root"|id=\\"root\\"/);
@@ -25,5 +30,11 @@ assert.match(app, /Open dashboard preview/);
 assert.match(app, /Preview mode/);
 assert.match(ignore, /^\.env\s*$/m);
 assert.match(ignore, /^node_modules\/\s*$/m);
+assert.ok(apiClient.includes("VITE_INDOONE_API_BASE_URL"), "Backend URL must be configurable at build time");
+assert.ok(apiClient.includes('method: "GET"'), "Health check must use GET");
+assert.ok(apiClient.includes("/health"), "Health endpoint path must be present");
+assert.ok(apiClient.includes('credentials: "omit"'), "Health check must omit browser credentials");
+assert.ok(appSource.includes("Check connection"), "Settings must expose the backend health check");
+assert.ok(exampleEnv.includes("VITE_INDOONE_API_BASE_URL="), "Example environment file must document the API base URL");
 
-console.log("Source smoke checks passed: required files, preview-only auth messaging, and secret-file ignores.");
+console.log("Source smoke checks passed: app files, preview-only auth, read-only backend health check, and secret-file ignores.");
