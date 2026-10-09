@@ -26,6 +26,12 @@ button:focus-visible,input:focus-visible{outline:2px solid #7c9cff;outline-offse
 .login-form{display:flex;flex-direction:column;margin-top:36px;max-width:420px;gap:10px}
 .login-form label{font-size:11px;font-weight:600;color:#cbd3e6}
 .login-form input{height:47px;padding:0 14px;background:#111a2c;border:1px solid #293650;border-radius:9px;color:#f4f6ff;outline:none;transition:border .18s,box-shadow .18s}
+.password-input-wrap{position:relative;width:100%}
+.password-input-wrap input{display:block;width:100%;padding-right:67px}
+.password-input-wrap input:focus{position:relative;z-index:1}
+.password-visibility{position:absolute;z-index:2;right:8px;top:50%;transform:translateY(-50%);min-width:47px;height:29px;border:1px solid #354462;border-radius:6px;background:#1a263e;color:#b8c6ed;font-size:10px;font-weight:650}
+.password-visibility:hover{background:#253653;color:#f1f4ff}
+.password-visibility:focus-visible{outline:2px solid #93a8ff;outline-offset:2px}
 .login-form input::placeholder{color:#5d6984}
 .login-form input:focus{border-color:#778fff;box-shadow:0 0 0 3px #7d9cff19}
 .password-label{display:flex;align-items:center;justify-content:space-between;margin-top:9px}
