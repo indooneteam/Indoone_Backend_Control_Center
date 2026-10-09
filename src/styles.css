@@ -161,6 +161,11 @@ button:focus-visible,input:focus-visible{outline:2px solid #7c9cff;outline-offse
 .settings-row-connection{align-items:center}
 .api-url-note{display:block;margin-top:7px;font-size:9px;color:#7183a4;line-height:1.5}
 .connection-controls{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.connection-copy{flex:1;min-width:220px}
+.api-url-label{display:block;margin-top:11px;font-size:10px;color:#cbd3e6;font-weight:600}
+.settings-api-input.field{display:block;width:100%;max-width:460px;height:38px;margin-top:6px;font-size:11px}
+.connection-copy .api-url-note{max-width:510px}
+
 .connection-test.secondary-button{width:auto;max-width:none;height:34px;padding:0 11px;font-size:10px;white-space:nowrap}
 .connection-test:disabled{opacity:.6;cursor:wait}
 .badge-connected{border-color:#28624f;color:#73e0b7;background:#15372f}

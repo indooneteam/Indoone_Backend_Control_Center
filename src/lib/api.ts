@@ -13,9 +13,10 @@ export function isApiBaseUrlValid(value: string): boolean {
   }
 }
 
-export async function checkBackendHealth(): Promise<{ status: string }> {
-  if (!API_BASE_URL) throw new Error("Backend URL is not configured.");
-  if (!isApiBaseUrlValid(API_BASE_URL)) {
+export async function checkBackendHealth(baseUrl = API_BASE_URL): Promise<{ status: string }> {
+  const endpoint = baseUrl.trim().replace(/\/+$/, "");
+  if (!endpoint) throw new Error("Backend URL is not configured.");
+  if (!isApiBaseUrlValid(endpoint)) {
     throw new Error("Backend URL must be an HTTPS origin (or localhost for development), without credentials or extra paths.");
   }
 
@@ -23,7 +24,7 @@ export async function checkBackendHealth(): Promise<{ status: string }> {
   const timeoutId = globalThis.setTimeout(() => controller.abort(), 8000);
 
   try {
-    const response = await fetch(`${API_BASE_URL}/health`, {
+    const response = await fetch(`${endpoint}/health`, {
       method: "GET",
       mode: "cors",
       credentials: "omit",
