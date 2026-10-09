@@ -9,6 +9,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -93,5 +94,22 @@ describe("read-only backend health check", () => {
     fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
 
     await expect(checkBackendHealth("https://api.example.com")).rejects.toThrow(/CORS allowed origins/);
+  });
+
+  it("aborts a slow health request after eight seconds", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const error = new Error("Aborted");
+          error.name = "AbortError";
+          reject(error);
+        });
+      })
+    );
+
+    const request = checkBackendHealth("https://api.example.com");
+    await vi.advanceTimersByTimeAsync(8000);
+    await expect(request).rejects.toThrow(/timed out after 8 seconds/);
   });
 });
