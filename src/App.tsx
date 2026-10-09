@@ -273,6 +273,12 @@ function App() {
   }
 
   const selectedLabel = navItems.find((item) => item.id === page)?.label ?? "Overview";
+  const currentDateLabel = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  }).format(new Date()).toUpperCase();
   const channelsOnline = Object.values(channelsEnabled).filter(Boolean).length;
 
   function showPreviewNotice() {
@@ -361,7 +367,7 @@ function App() {
         <div className="page-content">
           <div className="preview-banner"><span className="banner-symbol">ⓘ</span><div><strong>Preview mode</strong><span>Metrics are sample data. Controls only change this preview until the secure backend API is connected.</span></div><button type="button" onClick={() => setNotice("Live API connection is the next integration phase.")}>Details ↗</button></div>
           <div className="page-heading">
-            <div><div className="eyebrow">FRIDAY, OCTOBER 9, 2026 <span className="eyebrow-line" /></div><h1>{page === "overview" ? "System overview" : selectedLabel}<span>.</span></h1><p>{page === "overview" ? "A clear view of your services, activity and AI processing." : page === "channels" ? "Preview the controls for each connected platform." : page === "activity" ? "Review the shape of recent platform activity." : "Manage your workspace preferences."}</p></div>
+            <div><div className="eyebrow">{currentDateLabel} <span className="eyebrow-line" /></div><h1>{page === "overview" ? "System overview" : selectedLabel}<span>.</span></h1><p>{page === "overview" ? "A clear view of your services, activity and AI processing." : page === "channels" ? "Preview the controls for each connected platform." : page === "activity" ? "Review the shape of recent platform activity." : "Manage your workspace preferences."}</p></div>
             <button className="date-button" type="button" onClick={() => setNotice("Date filtering will be connected to live analytics later.")}><span>▦</span> Last 24 hours <span className="date-chevron">⌄</span></button>
           </div>
 
