@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 import os
 import sqlite3
@@ -8,7 +9,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 
 CHANNELS = ("whatsapp", "instagram", "telegram", "android")
 EVENT_STATUSES = ("success", "failed", "blocked", "skipped")
@@ -23,9 +27,23 @@ _INITIALIZED_DB_PATH: str | None = None
 
 app = FastAPI(
     title="Indoone Control Gateway",
-    version="0.1.0",
-    description="Portable, server-side control plane foundation for Indoone.",
+    version="0.2.0",
+    description="Portable, server-side control plane and fail-closed request intake gate.",
 )
+
+_allowed_origins = [
+    item.strip()
+    for item in os.getenv("INDOONE_ALLOWED_ORIGINS", "").split(",")
+    if item.strip()
+]
+if _allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Hub-Signature-256", "X-Telegram-Bot-Api-Secret-Token"],
+    )
 
 
 def _db_path() -> Path:
@@ -43,7 +61,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def initialize_db() -> None:
-    """Create state/event tables once per configured database path."""
+    """Create persistent state/event tables once per configured database path."""
     global _INITIALIZED_DB_PATH
     path = str(_db_path())
     if _INITIALIZED_DB_PATH == path:
@@ -96,7 +114,7 @@ def _setting(key: str) -> bool:
             "SELECT setting_value FROM gateway_settings WHERE setting_key = ?", (key,)
         ).fetchone()
     if row is None:
-        # Fail closed if a setting is missing or the database was migrated incompletely.
+        # Fail closed if a setting is missing or a database migration is incomplete.
         return False
     return str(row["setting_value"]) == "true"
 
@@ -168,7 +186,7 @@ def record_event(
     path: str,
     http_status: int | None = None,
 ) -> None:
-    """Record metadata only; never store bodies, tokens, phone numbers, or message IDs."""
+    """Store metadata only; never store request bodies, credentials, or customer IDs."""
     if channel not in CHANNELS or event_type not in EVENT_TYPES or status not in EVENT_STATUSES:
         raise ValueError("invalid event metadata")
     initialize_db()
@@ -188,6 +206,99 @@ def _empty_metrics() -> dict[str, Any]:
         "requests": {"total": 0, "success": 0, "failed": 0, "blocked": 0},
         "replies": {"sent": 0, "failed": 0, "skipped": 0},
     }
+
+
+def _channel_for_path(path: str) -> str:
+    normalized = path.split("?", 1)[0]
+    if normalized == "/api/integrations/whatsapp" or normalized.startswith("/api/integrations/whatsapp/") or normalized == "/api/whatsapp" or normalized.startswith("/api/whatsapp/"):
+        return "whatsapp"
+    if normalized == "/api/integrations/instagram" or normalized.startswith("/api/integrations/instagram/") or normalized == "/api/instagram" or normalized.startswith("/api/instagram/"):
+        return "instagram"
+    if normalized == "/api/telegram" or normalized.startswith("/api/telegram/"):
+        return "telegram"
+    # All remaining /api/* paths are app/API traffic. Integration-specific
+    # paths above are mapped first so their switches remain independent.
+    return "android"
+
+
+def _is_verification_request(path: str, method: str) -> bool:
+    return method.upper() == "GET" and path in {
+        "/api/integrations/whatsapp/webhook",
+        "/api/integrations/instagram/webhook",
+    }
+
+
+def _webhook_channel(path: str, method: str) -> str | None:
+    if method.upper() != "POST":
+        return None
+    if path == "/api/integrations/whatsapp/webhook":
+        return "whatsapp"
+    if path == "/api/integrations/instagram/webhook":
+        return "instagram"
+    if path == "/api/telegram/webhook/incoming":
+        return "telegram"
+    return None
+
+
+async def _verify_webhook(request: Request, channel: str, body: bytes) -> None:
+    if channel in {"whatsapp", "instagram"}:
+        env_name = "INDOONE_WHATSAPP_APP_SECRET" if channel == "whatsapp" else "INDOONE_INSTAGRAM_APP_SECRET"
+        secret = os.getenv(env_name, "").strip()
+        signature = request.headers.get("x-hub-signature-256", "").strip()
+        if not secret:
+            raise HTTPException(status_code=503, detail=f"{channel} webhook signature validation is not configured at gateway")
+        expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        if not signature or not hmac.compare_digest(expected, signature):
+            raise HTTPException(status_code=403, detail=f"invalid {channel} webhook signature")
+        return
+
+    secret = os.getenv("INDOONE_TELEGRAM_WEBHOOK_SECRET", "").strip()
+    supplied = request.headers.get("x-telegram-bot-api-secret-token", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Telegram webhook secret validation is not configured at gateway")
+    if not supplied or not hmac.compare_digest(secret, supplied):
+        raise HTTPException(status_code=403, detail="invalid Telegram webhook secret")
+
+
+async def _forward_request(request: Request) -> Response:
+    origin = os.getenv("GATEWAY_BACKEND_ORIGIN", "").strip().rstrip("/")
+    if not origin or not origin.startswith(("http://", "https://")):
+        raise HTTPException(status_code=503, detail="gateway backend origin is not configured")
+    target = origin + request.url.path
+    if request.url.query:
+        target += "?" + request.url.query
+    hop_headers = {
+        "host", "content-length", "connection", "keep-alive", "proxy-authenticate",
+        "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade",
+    }
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in hop_headers}
+    body = await request.body()
+    timeout = float(os.getenv("GATEWAY_PROXY_TIMEOUT_SECONDS", "30"))
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            upstream = await client.request(
+                request.method,
+                target,
+                params=None,
+                content=body if body else None,
+                headers=headers,
+            )
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail="upstream backend unavailable") from exc
+    response_hop_headers = {
+        "content-length", "connection", "keep-alive", "proxy-authenticate",
+        "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade",
+        "content-encoding",
+    }
+    response_headers = {
+        k: v for k, v in upstream.headers.items()
+        if k.lower() not in response_hop_headers
+    }
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        headers=response_headers,
+    )
 
 
 @app.get("/health/live")
@@ -321,3 +432,59 @@ async def control_center_activity(
             for row in rows
         ],
     }
+
+
+@app.api_route(
+    "/api/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+)
+async def api_ingress_gate(path: str, request: Request) -> Response:
+    full_path = request.url.path
+    if full_path.startswith("/api/control-center/"):
+        raise HTTPException(status_code=404, detail="unknown Control Center endpoint")
+    if _is_verification_request(full_path, request.method):
+        # Meta's webhook verification handshake is configuration, not message intake.
+        return await _forward_request(request)
+
+    channel = _channel_for_path(full_path)
+    if not _setting("global_intake_enabled") or not _setting(f"{channel}_intake_enabled"):
+        webhook_channel = _webhook_channel(full_path, request.method)
+        if webhook_channel:
+            body = await request.body()
+            try:
+                await _verify_webhook(request, webhook_channel, body)
+            except HTTPException as exc:
+                try:
+                    record_event(channel, "request", "failed", full_path, exc.status_code)
+                except Exception:
+                    pass
+                raise
+            record_event(channel, "request", "blocked", full_path, 200)
+            if webhook_channel == "telegram":
+                return JSONResponse(
+                    {"accepted": True, "processed": False, "reason": "intake_paused"},
+                    status_code=200,
+                )
+            integration = "whatsapp_business" if webhook_channel == "whatsapp" else "instagram"
+            return JSONResponse(
+                {"integration": integration, "received": True, "processed": False, "reason": "intake_paused"},
+                status_code=200,
+            )
+        record_event(channel, "request", "blocked", full_path, 503)
+        return JSONResponse(
+            {"code": "APP_INTAKE_PAUSED", "detail": f"{channel} request intake is paused"},
+            status_code=503,
+        )
+
+    try:
+        upstream = await _forward_request(request)
+    except HTTPException as exc:
+        record_event(channel, "request", "failed", full_path, exc.status_code)
+        raise
+    except Exception as exc:
+        record_event(channel, "request", "failed", full_path, 502)
+        raise HTTPException(status_code=502, detail="gateway forwarding failed") from exc
+
+    status = "success" if upstream.status_code < 400 else "failed"
+    record_event(channel, "request", status, full_path, upstream.status_code)
+    return upstream
