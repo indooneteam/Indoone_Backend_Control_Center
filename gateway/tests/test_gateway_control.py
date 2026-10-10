@@ -1,3 +1,4 @@
+import httpx
 import hashlib
 import hmac
 
@@ -400,3 +401,74 @@ def test_instagram_delivery_callback_is_counted_when_intake_is_off(tmp_path, mon
     assert response.status_code == 200
     metrics = client.get("/api/control-center/metrics", headers=_auth()).json()
     assert metrics["channels"]["instagram"]["replies"]["delivered"] == 1
+
+
+
+def test_gateway_proxy_streams_request_and_response_without_compression_header(tmp_path, monkeypatch):
+    import gzip
+
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setenv("GATEWAY_BACKEND_ORIGIN", "http://127.0.0.1:8000")
+    client.patch(
+        "/api/control-center/settings",
+        headers=_auth(),
+        json={"global_intake_enabled": True, "channels": {"android": {"intake_enabled": True}}},
+    )
+
+    captured = {}
+    plain_body = b"data: first\\n\\ndata: second\\n\\n"
+    compressed_body = gzip.compress(plain_body)
+    real_async_client = httpx.AsyncClient
+
+    class FakeResponseStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield compressed_body
+
+        async def aclose(self):
+            captured["upstream_closed"] = True
+
+    class FakeTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            captured["target"] = str(request.url)
+            captured["method"] = request.method
+            captured["request_streaming"] = "Async" in type(request.stream).__name__
+            captured["forwarded_body"] = await request.aread()
+            return httpx.Response(
+                200,
+                headers={
+                    "content-type": "text/event-stream",
+                    "content-encoding": "gzip",
+                    "content-length": str(len(compressed_body)),
+                    "x-upstream-test": "streaming",
+                },
+                stream=FakeResponseStream(),
+                request=request,
+            )
+
+        async def aclose(self):
+            captured["transport_closed"] = True
+
+    def fake_client_factory(*, timeout, follow_redirects):
+        captured["timeout"] = timeout
+        captured["follow_redirects"] = follow_redirects
+        return real_async_client(
+            timeout=timeout,
+            follow_redirects=follow_redirects,
+            transport=FakeTransport(),
+        )
+
+    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", fake_client_factory)
+    response = client.post("/api/test-stream", content=b"payload")
+    assert response.status_code == 200, response.text
+    assert response.content == plain_body
+    assert response.headers["content-type"] == "text/event-stream"
+    assert response.headers["x-upstream-test"] == "streaming"
+    assert "content-encoding" not in response.headers
+    assert "content-length" not in response.headers
+    assert captured["target"] == "http://127.0.0.1:8000/api/test-stream"
+    assert captured["method"] == "POST"
+    assert captured["forwarded_body"] == b"payload"
+    assert captured["request_streaming"] is True
+    assert captured["follow_redirects"] is False
+    assert captured["transport_closed"] is True
+    assert captured["upstream_closed"] is True

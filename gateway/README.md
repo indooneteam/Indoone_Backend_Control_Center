@@ -15,7 +15,8 @@ This service lives in the existing `Indoone_Backend_Control_Center` repository a
 - Incoming `/api/*` requests are checked at the gateway before forwarding to the configured backend origin.
 - App API requests are rejected at the gateway while their effective intake switch is OFF.
 - WhatsApp, Instagram, and Telegram webhooks are signature/secret validated at the gateway before an OFF-state acknowledgement is returned. An OFF webhook is not forwarded to the backend.
-- Valid, enabled requests are proxied to `GATEWAY_BACKEND_ORIGIN`.
+- Valid, enabled requests are streamed to `GATEWAY_BACKEND_ORIGIN` and upstream responses are streamed back; chat/SSE responses and uploads are not fully buffered in application memory.
+- Proxy connect/write timeouts use `GATEWAY_PROXY_TIMEOUT_SECONDS`; streaming read inactivity uses `GATEWAY_PROXY_READ_TIMEOUT_SECONDS` (default 300 seconds).
 - CORS accepts only exact origins configured in `INDOONE_ALLOWED_ORIGINS`.
 - Admin authentication uses the server-side `INDOONE_CONTROL_CENTER_ADMIN_TOKEN`.
 - Backend-only `POST /internal/replies/check/{channel}` lets the backend skip AI generation when replies are OFF; the request is authenticated by `INDOONE_GATEWAY_BACKEND_TOKEN`.
