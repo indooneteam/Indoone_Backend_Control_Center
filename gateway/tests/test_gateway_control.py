@@ -459,7 +459,7 @@ def test_gateway_proxy_streams_request_and_response_without_compression_header(t
 
     monkeypatch.setattr(gateway_main.httpx, "AsyncClient", fake_client_factory)
     response = client.post("/api/test-stream", content=b"payload")
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.content == plain_body
     assert response.headers["content-type"] == "text/event-stream"
     assert response.headers["x-upstream-test"] == "streaming"
