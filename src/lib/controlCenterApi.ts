@@ -28,7 +28,9 @@ export type ChannelMetrics = {
   };
   replies: {
     sent: number;
+    delivered: number;
     failed: number;
+    delivery_failed: number;
     skipped: number;
   };
 };

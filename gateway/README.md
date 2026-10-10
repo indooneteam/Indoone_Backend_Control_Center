@@ -21,6 +21,8 @@ This service lives in the existing `Indoone_Backend_Control_Center` repository a
 - Backend-only `POST /internal/replies/check/{channel}` lets the backend skip AI generation when replies are OFF; the request is authenticated by `INDOONE_GATEWAY_BACKEND_TOKEN`.
 - Backend-only `POST /internal/egress/{channel}` re-checks durable reply switches just before sending, restricts outbound HTTPS destinations to approved provider API hosts/paths, and tracks sent/failed/skipped results.
 - Android AI chat/stream requests are stopped before backend forwarding if their reply switch is OFF.
+- Verified WhatsApp and Instagram delivery callbacks are counted by a hash of provider message ID. Repeated callbacks are deduplicated; raw IDs and message content are not stored.
+- Metrics distinguish provider-accepted sends from provider-confirmed deliveries; only providers with delivery callbacks can populate delivered counts.
 - Container health check and non-root runtime user.
 
 ## Still required before production
