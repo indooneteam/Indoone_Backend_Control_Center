@@ -472,3 +472,29 @@ def test_gateway_proxy_streams_request_and_response_without_compression_header(t
     assert captured["follow_redirects"] is False
     assert captured["transport_closed"] is True
     assert captured["upstream_closed"] is True
+
+
+
+def test_actual_platform_chat_stream_is_blocked_before_backend_when_replies_are_off(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setenv("GATEWAY_BACKEND_ORIGIN", "http://127.0.0.1:8000")
+    client.patch(
+        "/api/control-center/settings",
+        headers=_auth(),
+        json={
+            "global_intake_enabled": True,
+            "channels": {"android": {"intake_enabled": True, "reply_enabled": False}},
+        },
+    )
+    called = False
+
+    async def should_not_forward(request):
+        nonlocal called
+        called = True
+        return JSONResponse({"unexpected": "AI was called"}, status_code=200)
+
+    monkeypatch.setattr(gateway_main, "_forward_request", should_not_forward)
+    response = client.post("/api/chat/stream", json={"message": "hello"})
+    assert response.status_code == 423
+    assert response.json()["code"] == "APP_REPLIES_PAUSED"
+    assert called is False
