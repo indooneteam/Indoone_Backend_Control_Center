@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import re
 import sqlite3
@@ -89,6 +90,21 @@ def initialize_db() -> None:
                 ON gateway_events(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_gateway_events_channel_created
                 ON gateway_events(channel, created_at DESC);
+            CREATE TABLE IF NOT EXISTS gateway_deliveries (
+                channel TEXT NOT NULL,
+                message_hash TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                sent_at TEXT,
+                delivered_at TEXT,
+                read_at TEXT,
+                failed_at TEXT,
+                PRIMARY KEY(channel, message_hash)
+            );
+            CREATE INDEX IF NOT EXISTS idx_gateway_deliveries_channel_delivered
+                ON gateway_deliveries(channel, delivered_at);
+            CREATE INDEX IF NOT EXISTS idx_gateway_deliveries_channel_failed
+                ON gateway_deliveries(channel, failed_at);
             """
         )
         now = _now()
@@ -268,10 +284,91 @@ async def _send_provider_request(
         headers={"content-type": upstream.headers.get("content-type", "application/json")},
     )
 
+def record_delivery_status(channel: str, provider_message_id: str, status: str) -> None:
+    """Keep deduplicated delivery timestamps and a hash, never the provider message ID."""
+    if channel not in {"whatsapp", "instagram"}:
+        return
+    message_id = provider_message_id.strip()
+    if not message_id or status not in {"sent", "delivered", "read", "failed"}:
+        return
+    message_hash = hashlib.sha256(f"{channel}:{message_id}".encode("utf-8")).hexdigest()
+    now = _now()
+    sent_at = now if status == "sent" else None
+    delivered_at = now if status in {"delivered", "read"} else None
+    read_at = now if status == "read" else None
+    failed_at = now if status == "failed" else None
+    initialize_db()
+    with closing(_connect()) as db:
+        db.execute(
+            """
+            INSERT INTO gateway_deliveries(
+                channel, message_hash, first_seen_at, updated_at,
+                sent_at, delivered_at, read_at, failed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(channel, message_hash) DO UPDATE SET
+                updated_at=excluded.updated_at,
+                sent_at=COALESCE(gateway_deliveries.sent_at, excluded.sent_at),
+                delivered_at=COALESCE(gateway_deliveries.delivered_at, excluded.delivered_at),
+                read_at=COALESCE(gateway_deliveries.read_at, excluded.read_at),
+                failed_at=COALESCE(gateway_deliveries.failed_at, excluded.failed_at)
+            """,
+            (channel, message_hash, now, now, sent_at, delivered_at, read_at, failed_at),
+        )
+        db.commit()
+
+
+def _record_provider_delivery_callbacks(channel: str, body: bytes) -> None:
+    """Parse only provider delivery metadata from a signature-verified webhook."""
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if not isinstance(payload, dict):
+        return
+
+    entries = payload.get("entry")
+    if not isinstance(entries, list):
+        return
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if channel == "whatsapp":
+            changes = entry.get("changes")
+            if not isinstance(changes, list):
+                continue
+            for change in changes:
+                value = change.get("value") if isinstance(change, dict) else None
+                statuses = value.get("statuses") if isinstance(value, dict) else None
+                if not isinstance(statuses, list):
+                    continue
+                for item in statuses:
+                    if not isinstance(item, dict):
+                        continue
+                    record_delivery_status(
+                        "whatsapp",
+                        str(item.get("id") or ""),
+                        str(item.get("status") or "").lower(),
+                    )
+        elif channel == "instagram":
+            events = entry.get("messaging")
+            if not isinstance(events, list):
+                continue
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                delivery = event.get("delivery")
+                if isinstance(delivery, dict) and isinstance(delivery.get("mids"), list):
+                    for message_id in delivery["mids"]:
+                        record_delivery_status("instagram", str(message_id or ""), "delivered")
+
+
 def _empty_metrics() -> dict[str, Any]:
     return {
         "requests": {"total": 0, "success": 0, "failed": 0, "blocked": 0},
-        "replies": {"sent": 0, "failed": 0, "skipped": 0},
+        "replies": {
+            "sent": 0, "delivered": 0, "failed": 0,
+            "delivery_failed": 0, "skipped": 0
+        },
     }
 
 
@@ -446,6 +543,16 @@ async def control_center_metrics(
             """,
             (cutoff,),
         ).fetchall()
+        delivery_rows = db.execute(
+            """
+            SELECT channel,
+                SUM(CASE WHEN delivered_at >= ? THEN 1 ELSE 0 END) AS delivered,
+                SUM(CASE WHEN failed_at >= ? THEN 1 ELSE 0 END) AS delivery_failed
+            FROM gateway_deliveries
+            GROUP BY channel
+            """,
+            (cutoff, cutoff),
+        ).fetchall()
     for row in rows:
         channel, event_type, status, count = (
             str(row["channel"]), str(row["event_type"]), str(row["status"]), int(row["count"])
@@ -460,6 +567,11 @@ async def control_center_metrics(
             mapped = {"success": "sent", "failed": "failed", "skipped": "skipped"}.get(status)
             if mapped:
                 channels[channel]["replies"][mapped] += count
+    for row in delivery_rows:
+        channel = str(row["channel"])
+        if channel in channels:
+            channels[channel]["replies"]["delivered"] = int(row["delivered"] or 0)
+            channels[channel]["replies"]["delivery_failed"] = int(row["delivery_failed"] or 0)
     totals = _empty_metrics()
     for item in channels.values():
         for key in totals["requests"]:
@@ -573,18 +685,26 @@ async def api_ingress_gate(path: str, request: Request) -> Response:
         return await _forward_request(request)
 
     channel = _channel_for_path(full_path)
-    if not _setting("global_intake_enabled") or not _setting(f"{channel}_intake_enabled"):
-        webhook_channel = _webhook_channel(full_path, request.method)
-        if webhook_channel:
-            body = await request.body()
+    webhook_channel = _webhook_channel(full_path, request.method)
+    if webhook_channel:
+        body = await request.body()
+        try:
+            await _verify_webhook(request, webhook_channel, body)
+        except HTTPException as exc:
             try:
-                await _verify_webhook(request, webhook_channel, body)
-            except HTTPException as exc:
-                try:
-                    record_event(channel, "request", "failed", full_path, exc.status_code)
-                except Exception:
-                    pass
-                raise
+                record_event(channel, "request", "failed", full_path, exc.status_code)
+            except Exception:
+                pass
+            raise
+        if webhook_channel in {"whatsapp", "instagram"}:
+            try:
+                _record_provider_delivery_callbacks(webhook_channel, body)
+            except Exception:
+                # A metrics parsing/storage failure must not break provider webhook handling.
+                pass
+
+    if not _setting("global_intake_enabled") or not _setting(f"{channel}_intake_enabled"):
+        if webhook_channel:
             record_event(channel, "request", "blocked", full_path, 200)
             if webhook_channel == "telegram":
                 return JSONResponse(

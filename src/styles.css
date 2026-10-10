@@ -258,7 +258,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #7c9cff;outline-offse
 .cc-global-card .cc-button{min-height:36px}
 .cc-section{margin-top:25px}.cc-section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:13px}.cc-section-heading h2{font-size:15px;margin:0 0 5px}.cc-section-heading p{font-size:10px;margin:0}
 .cc-window-pill{font-size:9px;font-weight:750;color:#5775a3;background:#ecf2fc;border-radius:7px;padding:7px 9px}
-.cc-total-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+.cc-total-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
 .cc-metric{background:#fff;border:1px solid #e3eaf4;border-radius:12px;padding:13px 12px;min-width:0}
 .cc-metric span{font-size:9px;line-height:1.4;color:#7e8ca2;display:block;min-height:25px}
 .cc-metric strong{font-size:22px;letter-spacing:-.5px;display:block;margin-top:7px;color:#243854}

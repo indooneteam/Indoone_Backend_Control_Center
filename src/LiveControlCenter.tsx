@@ -22,7 +22,7 @@ const channelInfo: { id: ControlChannel; name: string; description: string }[] =
 function emptyMetrics(): ChannelMetrics {
   return {
     requests: { total: 0, success: 0, failed: 0, blocked: 0 },
-    replies: { sent: 0, failed: 0, skipped: 0 }
+    replies: { sent: 0, delivered: 0, failed: 0, delivery_failed: 0, skipped: 0 }
   };
 }
 
@@ -297,8 +297,10 @@ export default function LiveControlCenter() {
               <Metric label="Request success" value={totals.requests.success} kind="success" />
               <Metric label="Request failures" value={totals.requests.failed} kind="failure" />
               <Metric label="Request blocked" value={totals.requests.blocked} kind="warning" />
-              <Metric label="Replies sent" value={totals.replies.sent} kind="success" />
-              <Metric label="Reply failures" value={totals.replies.failed} kind="failure" />
+              <Metric label="Replies accepted" value={totals.replies.sent} kind="success" />
+              <Metric label="Provider-confirmed delivered" value={totals.replies.delivered} kind="success" />
+              <Metric label="Send failures" value={totals.replies.failed} kind="failure" />
+              <Metric label="Delivery failures" value={totals.replies.delivery_failed} kind="failure" />
               <Metric label="Replies skipped" value={totals.replies.skipped} kind="warning" />
             </div>
           </section>
@@ -318,8 +320,10 @@ export default function LiveControlCenter() {
                       <div><small>Requests</small><strong>{data.requests.total.toLocaleString()}</strong></div>
                       <div><small>Failed</small><strong className="is-failure">{data.requests.failed.toLocaleString()}</strong></div>
                       <div><small>Blocked</small><strong>{data.requests.blocked.toLocaleString()}</strong></div>
-                      <div><small>Replies sent</small><strong className="is-success">{data.replies.sent.toLocaleString()}</strong></div>
-                      <div><small>Reply failed</small><strong className="is-failure">{data.replies.failed.toLocaleString()}</strong></div>
+                      <div><small>Replies accepted</small><strong className="is-success">{data.replies.sent.toLocaleString()}</strong></div>
+                      <div><small>Provider-confirmed delivered</small><strong className="is-success">{data.replies.delivered.toLocaleString()}</strong></div>
+                      <div><small>Send failed</small><strong className="is-failure">{data.replies.failed.toLocaleString()}</strong></div>
+                      <div><small>Delivery failed</small><strong className="is-failure">{data.replies.delivery_failed.toLocaleString()}</strong></div>
                       <div><small>Reply skipped</small><strong>{data.replies.skipped.toLocaleString()}</strong></div>
                     </div>
                   </article>

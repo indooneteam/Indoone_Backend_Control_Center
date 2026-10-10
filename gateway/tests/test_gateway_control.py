@@ -329,3 +329,74 @@ def test_android_ai_chat_is_stopped_before_backend_when_replies_are_off(tmp_path
     assert response.status_code == 423
     assert response.json()["code"] == "APP_REPLIES_PAUSED"
     assert called is False
+
+
+
+def test_whatsapp_delivery_callbacks_are_deduplicated_while_intake_is_off(tmp_path, monkeypatch):
+    import hashlib
+    import hmac
+    import json
+
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setenv("INDOONE_WHATSAPP_APP_SECRET", "test-meta-app-secret")
+    body = json.dumps(
+        {
+            "object": "whatsapp_business_account",
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "field": "messages",
+                            "value": {
+                                "statuses": [
+                                    {"id": "wamid-delivered-test-1", "status": "delivered"},
+                                    {"id": "wamid-failed-test-2", "status": "failed"},
+                                ]
+                            },
+                        }
+                    ]
+                }
+            ],
+        },
+        separators=(",", ":"),
+    ).encode()
+    signature = "sha256=" + hmac.new(
+        b"test-meta-app-secret", body, hashlib.sha256
+    ).hexdigest()
+    headers = {"X-Hub-Signature-256": signature}
+    first = client.post("/api/integrations/whatsapp/webhook", content=body, headers=headers)
+    second = client.post("/api/integrations/whatsapp/webhook", content=body, headers=headers)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["reason"] == "intake_paused"
+
+    metrics = client.get("/api/control-center/metrics", headers=_auth()).json()
+    assert metrics["channels"]["whatsapp"]["replies"]["delivered"] == 1
+    assert metrics["channels"]["whatsapp"]["replies"]["delivery_failed"] == 1
+
+
+def test_instagram_delivery_callback_is_counted_when_intake_is_off(tmp_path, monkeypatch):
+    import hashlib
+    import hmac
+    import json
+
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setenv("INDOONE_INSTAGRAM_APP_SECRET", "test-instagram-app-secret")
+    body = json.dumps(
+        {
+            "object": "instagram",
+            "entry": [{"messaging": [{"delivery": {"mids": ["ig-message-delivered-1"]}}]}],
+        },
+        separators=(",", ":"),
+    ).encode()
+    signature = "sha256=" + hmac.new(
+        b"test-instagram-app-secret", body, hashlib.sha256
+    ).hexdigest()
+    response = client.post(
+        "/api/integrations/instagram/webhook",
+        content=body,
+        headers={"X-Hub-Signature-256": signature},
+    )
+    assert response.status_code == 200
+    metrics = client.get("/api/control-center/metrics", headers=_auth()).json()
+    assert metrics["channels"]["instagram"]["replies"]["delivered"] == 1
