@@ -308,7 +308,11 @@ def test_android_ai_chat_is_stopped_before_backend_when_replies_are_off(tmp_path
     client.patch(
         "/api/control-center/settings",
         headers=_auth(),
-        json={"global_intake_enabled": True, "channels": {"android": {"intake_enabled": True}}},
+        json={
+            "global_intake_enabled": True,
+            "global_replies_enabled": True,
+            "channels": {"android": {"intake_enabled": True, "reply_enabled": True}},
+        },
     )
     called = False
 
