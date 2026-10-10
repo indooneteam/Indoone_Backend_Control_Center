@@ -2,7 +2,13 @@ import hashlib
 import hmac
 
 from fastapi.responses import JSONResponse
+import hashlib
+import hmac
+
+from fastapi.responses import JSONResponse, Response
 from fastapi.testclient import TestClient
+
+from gateway import main as gateway_main
 
 from gateway import main as gateway_main
 from gateway.main import app
@@ -174,3 +180,102 @@ def test_whatsapp_off_does_not_block_other_enabled_channel(tmp_path, monkeypatch
     assert blocked.json()["reason"] == "intake_paused"
     assert allowed.status_code == 200
     assert forwarded == ["/api/chat"]
+
+
+
+SERVICE_TOKEN = "test-gateway-backend-service-token-1234567890"
+
+
+def _enable_replies(client, channels):
+    return client.patch(
+        "/api/control-center/settings",
+        headers=_auth(),
+        json={"global_replies_enabled": True, "channels": channels},
+    )
+
+
+def _egress_payload(target_url="https://graph.facebook.com/v23.0/123456789/messages"):
+    return {
+        "target_url": target_url,
+        "headers": {
+            "Authorization": "Bearer provider-test-token",
+            "Content-Type": "application/json",
+        },
+        "json": {
+            "messaging_product": "whatsapp",
+            "to": "15551234567",
+            "type": "text",
+            "text": {"body": "test"},
+        },
+    }
+
+
+def test_internal_egress_requires_private_service_token(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setenv("INDOONE_GATEWAY_BACKEND_TOKEN", SERVICE_TOKEN)
+    response = client.post("/internal/egress/whatsapp", json=_egress_payload())
+    assert response.status_code == 401
+
+
+def test_reply_off_blocks_provider_call_at_gateway(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setenv("INDOONE_GATEWAY_BACKEND_TOKEN", SERVICE_TOKEN)
+    _enable_replies(client, {"whatsapp": {"reply_enabled": False}})
+    called = False
+
+    async def should_not_send(channel, target_url, headers, payload):
+        nonlocal called
+        called = True
+        return Response(content=b'{"ok":true}', status_code=200, media_type="application/json")
+
+    monkeypatch.setattr(gateway_main, "_send_provider_request", should_not_send)
+    response = client.post(
+        "/internal/egress/whatsapp",
+        headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+        json=_egress_payload(),
+    )
+    assert response.status_code == 423
+    assert response.json()["reason"] == "replies_paused"
+    assert called is False
+
+    metrics = client.get("/api/control-center/metrics", headers=_auth()).json()
+    assert metrics["channels"]["whatsapp"]["replies"]["skipped"] == 1
+
+
+def test_reply_on_allows_only_approved_whatsapp_provider_target(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setenv("INDOONE_GATEWAY_BACKEND_TOKEN", SERVICE_TOKEN)
+    _enable_replies(client, {"whatsapp": {"reply_enabled": True}})
+    called = []
+
+    async def fake_send(channel, target_url, headers, payload):
+        called.append((channel, target_url, payload))
+        return Response(
+            content=b'{"messages":[{"id":"provider-message-id"}]}',
+            status_code=200,
+            media_type="application/json",
+        )
+
+    monkeypatch.setattr(gateway_main, "_send_provider_request", fake_send)
+    response = client.post(
+        "/internal/egress/whatsapp",
+        headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+        json=_egress_payload(),
+    )
+    assert response.status_code == 200
+    assert len(called) == 1
+    assert called[0][0] == "whatsapp"
+    metrics = client.get("/api/control-center/metrics", headers=_auth()).json()
+    assert metrics["channels"]["whatsapp"]["replies"]["sent"] == 1
+
+
+def test_egress_rejects_non_provider_target(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setenv("INDOONE_GATEWAY_BACKEND_TOKEN", SERVICE_TOKEN)
+    _enable_replies(client, {"whatsapp": {"reply_enabled": True}})
+    response = client.post(
+        "/internal/egress/whatsapp",
+        headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+        json=_egress_payload("https://evil.example/capture"),
+    )
+    assert response.status_code == 422

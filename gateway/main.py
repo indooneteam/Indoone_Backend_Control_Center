@@ -3,11 +3,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
@@ -200,6 +202,71 @@ def record_event(
         )
         db.commit()
 
+
+
+def _service_authorized(request: Request) -> bool:
+    expected = os.getenv("INDOONE_GATEWAY_BACKEND_TOKEN", "").strip()
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, supplied = authorization.partition(" ")
+    return bool(
+        len(expected) >= 32
+        and separator
+        and scheme.lower() == "bearer"
+        and supplied.strip()
+        and hmac.compare_digest(expected, supplied.strip())
+    )
+
+
+def _egress_target_allowed(channel: str, target_url: str) -> bool:
+    """Strict provider URL allowlist; this endpoint must never become an open proxy."""
+    try:
+        target = urlsplit(target_url)
+        port = target.port
+    except ValueError:
+        return False
+    if (
+        target.scheme != "https"
+        or not target.hostname
+        or target.username
+        or target.password
+        or target.query
+        or target.fragment
+        or port not in (None, 443)
+    ):
+        return False
+    if channel == "whatsapp":
+        return target.hostname.lower() == "graph.facebook.com" and bool(
+            re.fullmatch(r"/v[0-9]+(?:\.[0-9]+)?/[0-9]+/messages", target.path)
+        )
+    if channel == "instagram":
+        return target.hostname.lower() in {"graph.instagram.com", "graph.facebook.com"} and bool(
+            re.fullmatch(r"/me/messages", target.path)
+        )
+    if channel == "telegram":
+        return target.hostname.lower() == "api.telegram.org" and bool(
+            re.fullmatch(r"/bot[0-9]+:[A-Za-z0-9_-]+/sendMessage", target.path)
+        )
+    return False
+
+
+async def _send_provider_request(
+    channel: str, target_url: str, headers: dict[str, str], payload: dict[str, Any]
+) -> Response:
+    safe_headers = {
+        key: value
+        for key, value in headers.items()
+        if key.lower() in {"authorization", "accept", "content-type"}
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
+            upstream = await client.post(target_url, headers=safe_headers, json=payload)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="provider request failed at gateway") from exc
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        headers={"content-type": upstream.headers.get("content-type", "application/json")},
+    )
 
 def _empty_metrics() -> dict[str, Any]:
     return {
@@ -432,6 +499,52 @@ async def control_center_activity(
             for row in rows
         ],
     }
+
+
+@app.post("/internal/egress/{channel}")
+async def controlled_provider_egress(
+    channel: str,
+    request: Request,
+    payload: dict[str, Any] = Body(...),
+) -> Response:
+    """Authenticated backend-only egress gate for provider reply sends."""
+    if channel not in {"whatsapp", "instagram", "telegram"}:
+        raise HTTPException(status_code=404, detail="unsupported provider channel")
+    if not _service_authorized(request):
+        raise HTTPException(status_code=401, detail="gateway backend service authorization required")
+
+    target_url = payload.get("target_url")
+    provider_headers = payload.get("headers", {})
+    provider_payload = payload.get("json")
+    if (
+        not isinstance(target_url, str)
+        or not isinstance(provider_headers, dict)
+        or not all(isinstance(k, str) and isinstance(v, str) for k, v in provider_headers.items())
+        or not isinstance(provider_payload, dict)
+        or set(payload) != {"target_url", "headers", "json"}
+    ):
+        raise HTTPException(status_code=422, detail="invalid provider egress payload")
+    if not _egress_target_allowed(channel, target_url):
+        raise HTTPException(status_code=422, detail="provider target is not allowlisted")
+
+    # Re-check the durable switch immediately before contacting the provider.
+    if not _setting("global_replies_enabled") or not _setting(f"{channel}_reply_enabled"):
+        record_event(channel, "reply", "skipped", f"/internal/egress/{channel}", 423)
+        return JSONResponse({"status": "skipped", "reason": "replies_paused"}, status_code=423)
+
+    try:
+        response = await _send_provider_request(channel, target_url, provider_headers, provider_payload)
+    except HTTPException as exc:
+        record_event(channel, "reply", "failed", f"/internal/egress/{channel}", exc.status_code)
+        raise
+    status = "success" if 200 <= response.status_code < 300 else "failed"
+    try:
+        record_event(channel, "reply", status, f"/internal/egress/{channel}", response.status_code)
+    except Exception:
+        # Do not turn a confirmed provider send into an application error if metrics storage
+        # is temporarily unavailable. The request remains visible in gateway logs.
+        pass
+    return response
 
 
 @app.api_route(

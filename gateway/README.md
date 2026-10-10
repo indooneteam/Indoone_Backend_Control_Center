@@ -18,11 +18,12 @@ This service lives in the existing `Indoone_Backend_Control_Center` repository a
 - Valid, enabled requests are proxied to `GATEWAY_BACKEND_ORIGIN`.
 - CORS accepts only exact origins configured in `INDOONE_ALLOWED_ORIGINS`.
 - Admin authentication uses the server-side `INDOONE_CONTROL_CENTER_ADMIN_TOKEN`.
+- Backend-only `POST /internal/egress/{channel}` checks durable reply switches, uses a separate `INDOONE_GATEWAY_BACKEND_TOKEN`, restricts outbound HTTPS destinations to approved provider API hosts/paths, and tracks sent/failed/skipped results.
 - Container health check and non-root runtime user.
 
 ## Still required before production
 
-**The outbound reply gate is not implemented yet.** The existing backend's outgoing provider calls may still go directly to Meta or another provider. The reply switch in the control database is persistent and visible, but this gateway version does not yet enforce it on outgoing requests. Do not point live Meta webhooks or production app traffic at this gateway until the outbound gate, backend sender integration, and end-to-end tests are completed.
+**The gateway egress gate is implemented, but the existing backend sender adapters have not yet been changed to use it.** Until that backend integration is completed and tested, the old backend may still call Meta or another provider directly. Do not point live Meta webhooks or production app traffic at this gateway until the backend calls `/internal/egress/{channel}` for all automated and manual provider sends and end-to-end tests pass.
 
 The gateway must be reachable over HTTPS from apps/providers. It is source code in this repo, but it runs as its own service. GitHub Pages only hosts the dashboard and cannot run this API server.
 
@@ -30,6 +31,7 @@ The gateway must be reachable over HTTPS from apps/providers. It is source code 
 
 - `INDOONE_CONTROL_CENTER_ADMIN_TOKEN`: at least 32 random characters; server-side secret only.
 - `GATEWAY_BACKEND_ORIGIN`: fixed origin of the existing backend, with no path suffix.
+- `INDOONE_GATEWAY_BACKEND_TOKEN`: separate 32+ character service-to-service token shared only by the gateway and backend runtime.
 - `GATEWAY_DB_PATH`: durable database file path; mount persistent storage.
 - `INDOONE_ALLOWED_ORIGINS`: comma-separated exact dashboard origins.
 - `INDOONE_WHATSAPP_APP_SECRET`, `INDOONE_INSTAGRAM_APP_SECRET`, `INDOONE_TELEGRAM_WEBHOOK_SECRET`: webhook verification secrets shared with the configured provider integration.
