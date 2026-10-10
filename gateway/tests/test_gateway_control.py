@@ -404,6 +404,8 @@ def test_instagram_delivery_callback_is_counted_when_intake_is_off(tmp_path, mon
 
 
 def test_gateway_proxy_streams_request_and_response_without_compression_header(tmp_path, monkeypatch):
+    import gzip
+
     client = _client(tmp_path, monkeypatch)
     monkeypatch.setenv("GATEWAY_BACKEND_ORIGIN", "http://127.0.0.1:8000")
     client.patch(
@@ -413,55 +415,59 @@ def test_gateway_proxy_streams_request_and_response_without_compression_header(t
     )
 
     captured = {}
+    plain_body = b"data: first\\n\\ndata: second\\n\\n"
+    compressed_body = gzip.compress(plain_body)
+    real_async_client = httpx.AsyncClient
 
-    class FakeUpstream:
-        status_code = 200
-        headers = {
-            "content-type": "text/event-stream",
-            "content-encoding": "gzip",
-            "content-length": "999",
-            "x-upstream-test": "streaming",
-        }
-
-        async def aiter_bytes(self):
-            yield b"data: first\n\n"
-            yield b"data: second\n\n"
+    class FakeResponseStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield compressed_body
 
         async def aclose(self):
             captured["upstream_closed"] = True
 
-    class FakeClient:
-        def __init__(self, *, timeout, follow_redirects):
-            captured["timeout"] = timeout
-            self.closed = False
-
-        def build_request(self, method, url, *, content=None, headers=None):
-            captured["target"] = url
-            captured["method"] = method
-            captured["headers"] = headers or {}
-            captured["request_streaming"] = hasattr(content, "__aiter__")
-            return httpx.Request(method, url, headers=headers, content=content)
-
-        async def send(self, request, *, stream=False):
-            captured["stream"] = stream
-            captured["forwarded_body"] = b"".join([part async for part in request.stream])
-            return FakeUpstream()
+    class FakeTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            captured["target"] = str(request.url)
+            captured["method"] = request.method
+            captured["request_streaming"] = not request.is_stream_consumed
+            captured["forwarded_body"] = await request.aread()
+            return httpx.Response(
+                200,
+                headers={
+                    "content-type": "text/event-stream",
+                    "content-encoding": "gzip",
+                    "content-length": str(len(compressed_body)),
+                    "x-upstream-test": "streaming",
+                },
+                stream=FakeResponseStream(),
+                request=request,
+            )
 
         async def aclose(self):
-            self.closed = True
-            captured["client_closed"] = True
+            captured["transport_closed"] = True
 
-    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", FakeClient)
+    def fake_client_factory(*, timeout, follow_redirects):
+        captured["timeout"] = timeout
+        captured["follow_redirects"] = follow_redirects
+        return real_async_client(
+            timeout=timeout,
+            follow_redirects=follow_redirects,
+            transport=FakeTransport(),
+        )
+
+    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", fake_client_factory)
     response = client.post("/api/test-stream", content=b"payload")
     assert response.status_code == 200
-    assert response.text == "data: first\n\ndata: second\n\n"
+    assert response.content == plain_body
     assert response.headers["content-type"] == "text/event-stream"
     assert response.headers["x-upstream-test"] == "streaming"
     assert "content-encoding" not in response.headers
     assert "content-length" not in response.headers
     assert captured["target"] == "http://127.0.0.1:8000/api/test-stream"
+    assert captured["method"] == "POST"
     assert captured["forwarded_body"] == b"payload"
-    assert captured["stream"] is True
     assert captured["request_streaming"] is True
-    assert captured["client_closed"] is True
+    assert captured["follow_redirects"] is False
+    assert captured["transport_closed"] is True
     assert captured["upstream_closed"] is True
