@@ -752,7 +752,7 @@ async def api_ingress_gate(path: str, request: Request) -> Response:
     if (
         channel == "android"
         and request.method.upper() == "POST"
-        and full_path in {"/api/chat", "/api/platform/chat/stream"}
+        and full_path in {"/api/chat", "/api/chat/stream", "/api/platform/chat/stream"}
         and (
             not _setting("global_replies_enabled")
             or not _setting("android_reply_enabled")
