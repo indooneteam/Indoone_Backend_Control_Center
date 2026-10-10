@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -462,6 +463,7 @@ async def _forward_request(request: Request) -> Response:
         upstream = await client.send(upstream_request, stream=True)
     except (httpx.HTTPError, ValueError) as exc:
         await client.aclose()
+        logging.getLogger("indoone.control_gateway").exception("Gateway upstream request failed")
         raise HTTPException(status_code=502, detail="upstream backend unavailable") from exc
 
     response_hop_headers = {
