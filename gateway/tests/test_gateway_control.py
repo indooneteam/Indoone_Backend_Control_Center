@@ -431,7 +431,7 @@ def test_gateway_proxy_streams_request_and_response_without_compression_header(t
         async def handle_async_request(self, request):
             captured["target"] = str(request.url)
             captured["method"] = request.method
-            captured["request_streaming"] = not request.is_stream_consumed
+            captured["request_streaming"] = "Async" in type(request.stream).__name__
             captured["forwarded_body"] = await request.aread()
             return httpx.Response(
                 200,
