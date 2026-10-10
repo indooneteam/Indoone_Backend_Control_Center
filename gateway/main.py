@@ -501,6 +501,19 @@ async def control_center_activity(
     }
 
 
+@app.post("/internal/replies/check/{channel}")
+async def check_reply_allowed(channel: str, request: Request) -> dict[str, Any]:
+    """Backend-only preflight to avoid spending AI tokens when replies are OFF."""
+    if channel not in CHANNELS:
+        raise HTTPException(status_code=404, detail="unsupported reply channel")
+    if not _service_authorized(request):
+        raise HTTPException(status_code=401, detail="gateway backend service authorization required")
+    allowed = _setting("global_replies_enabled") and _setting(f"{channel}_reply_enabled")
+    if not allowed:
+        record_event(channel, "reply", "skipped", f"/internal/replies/check/{channel}", 423)
+    return {"status": "ok", "channel": channel, "allowed": allowed, "reason": None if allowed else "replies_paused"}
+
+
 @app.post("/internal/egress/{channel}")
 async def controlled_provider_egress(
     channel: str,
@@ -587,6 +600,22 @@ async def api_ingress_gate(path: str, request: Request) -> Response:
         return JSONResponse(
             {"code": "APP_INTAKE_PAUSED", "detail": f"{channel} request intake is paused"},
             status_code=503,
+        )
+
+    if (
+        channel == "android"
+        and request.method.upper() == "POST"
+        and full_path in {"/api/chat", "/api/platform/chat/stream"}
+        and (
+            not _setting("global_replies_enabled")
+            or not _setting("android_reply_enabled")
+        )
+    ):
+        record_event("android", "request", "blocked", full_path, 423)
+        record_event("android", "reply", "skipped", full_path, 423)
+        return JSONResponse(
+            {"code": "APP_REPLIES_PAUSED", "detail": "Android AI replies are paused"},
+            status_code=423,
         )
 
     try:

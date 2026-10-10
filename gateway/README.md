@@ -18,7 +18,9 @@ This service lives in the existing `Indoone_Backend_Control_Center` repository a
 - Valid, enabled requests are proxied to `GATEWAY_BACKEND_ORIGIN`.
 - CORS accepts only exact origins configured in `INDOONE_ALLOWED_ORIGINS`.
 - Admin authentication uses the server-side `INDOONE_CONTROL_CENTER_ADMIN_TOKEN`.
-- Backend-only `POST /internal/egress/{channel}` checks durable reply switches, uses a separate `INDOONE_GATEWAY_BACKEND_TOKEN`, restricts outbound HTTPS destinations to approved provider API hosts/paths, and tracks sent/failed/skipped results.
+- Backend-only `POST /internal/replies/check/{channel}` lets the backend skip AI generation when replies are OFF; the request is authenticated by `INDOONE_GATEWAY_BACKEND_TOKEN`.
+- Backend-only `POST /internal/egress/{channel}` re-checks durable reply switches just before sending, restricts outbound HTTPS destinations to approved provider API hosts/paths, and tracks sent/failed/skipped results.
+- Android AI chat/stream requests are stopped before backend forwarding if their reply switch is OFF.
 - Container health check and non-root runtime user.
 
 ## Still required before production
