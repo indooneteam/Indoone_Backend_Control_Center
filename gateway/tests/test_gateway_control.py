@@ -155,7 +155,11 @@ def test_whatsapp_off_does_not_block_other_enabled_channel(tmp_path, monkeypatch
         headers=_auth(),
         json={
             "global_intake_enabled": True,
-            "channels": {"whatsapp": {"intake_enabled": False}, "android": {"intake_enabled": True}},
+            "global_replies_enabled": True,
+            "channels": {
+                "whatsapp": {"intake_enabled": False},
+                "android": {"intake_enabled": True, "reply_enabled": True},
+            },
         },
     )
     forwarded = []
@@ -310,8 +314,7 @@ def test_android_ai_chat_is_stopped_before_backend_when_replies_are_off(tmp_path
         headers=_auth(),
         json={
             "global_intake_enabled": True,
-            "global_replies_enabled": True,
-            "channels": {"android": {"intake_enabled": True, "reply_enabled": True}},
+            "channels": {"android": {"intake_enabled": True}},
         },
     )
     called = False
