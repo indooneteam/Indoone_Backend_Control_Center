@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 CHANNELS = ("whatsapp", "instagram", "telegram", "android")
 EVENT_STATUSES = ("success", "failed", "blocked", "skipped")
@@ -425,6 +425,12 @@ async def _verify_webhook(request: Request, channel: str, body: bytes) -> None:
 
 
 async def _forward_request(request: Request) -> Response:
+    """Stream requests and responses through the gateway without buffering full bodies.
+
+    This is important for SSE/chat streaming and larger uploads. Webhook routes that need
+    signature verification may have already read request.body(); Starlette then replays the
+    cached body through request.stream().
+    """
     origin = os.getenv("GATEWAY_BACKEND_ORIGIN", "").strip().rstrip("/")
     if not origin or not origin.startswith(("http://", "https://")):
         raise HTTPException(status_code=503, detail="gateway backend origin is not configured")
@@ -436,30 +442,49 @@ async def _forward_request(request: Request) -> Response:
         "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade",
     }
     headers = {k: v for k, v in request.headers.items() if k.lower() not in hop_headers}
-    body = await request.body()
-    timeout = float(os.getenv("GATEWAY_PROXY_TIMEOUT_SECONDS", "30"))
+    timeout_seconds = float(os.getenv("GATEWAY_PROXY_TIMEOUT_SECONDS", "30"))
+    read_timeout_seconds = float(os.getenv("GATEWAY_PROXY_READ_TIMEOUT_SECONDS", "300"))
+    timeout = httpx.Timeout(
+        connect=timeout_seconds,
+        read=read_timeout_seconds,
+        write=timeout_seconds,
+        pool=timeout_seconds,
+    )
+    client = httpx.AsyncClient(timeout=timeout, follow_redirects=False)
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-            upstream = await client.request(
-                request.method,
-                target,
-                params=None,
-                content=body if body else None,
-                headers=headers,
-            )
+        body = None if request.method.upper() in {"GET", "HEAD", "OPTIONS"} else request.stream()
+        upstream_request = client.build_request(
+            request.method,
+            target,
+            content=body,
+            headers=headers,
+        )
+        upstream = await client.send(upstream_request, stream=True)
     except (httpx.HTTPError, ValueError) as exc:
+        await client.aclose()
         raise HTTPException(status_code=502, detail="upstream backend unavailable") from exc
+
     response_hop_headers = {
         "content-length", "connection", "keep-alive", "proxy-authenticate",
         "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade",
+        # We decode with aiter_bytes(); forwarding content-encoding would be incorrect.
         "content-encoding",
     }
     response_headers = {
         k: v for k, v in upstream.headers.items()
         if k.lower() not in response_hop_headers
     }
-    return Response(
-        content=upstream.content,
+
+    async def response_body():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        response_body(),
         status_code=upstream.status_code,
         headers=response_headers,
     )
