@@ -772,6 +772,7 @@ async def api_ingress_gate(path: str, request: Request) -> Response:
         raise
     except Exception as exc:
         record_event(channel, "request", "failed", full_path, 502)
+        logging.getLogger("indoone.control_gateway").exception("Gateway forwarding failed")
         raise HTTPException(status_code=502, detail="gateway forwarding failed") from exc
 
     status = "success" if upstream.status_code < 400 else "failed"
